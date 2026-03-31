@@ -29,6 +29,26 @@ CATEGORY_RULES = [
 ]
 
 HIGH_PRIORITY_HINTS = ["법", "입법", "예고", "고시", "공고", "규칙", "시장운영규칙", "세부운영규정"]
+ALLOW_PATTERNS = {
+    "assembly-bills": ["/portal/bbs/", "assembly.go.kr"],
+    "nars-news": ["/news/", "/report/", "nars.go.kr"],
+    "motie-admin-advance": ["/article/", "/contents/"],
+    "motie-notice": ["/article/", "/contents/"],
+    "motie-announcement": ["/article/", "/contents/"],
+    "motie-legislation": ["/article/", "/contents/"],
+    "motie-press": ["/article/", "/contents/"],
+    "kpx-notice": ["act=view", "list_no="],
+    "kpx-market-rules": ["act=view", "list_no="],
+    "kpx-detailed-rules": ["act=view", "list_no="],
+    "kpx-other-rules": ["act=view", "list_no="],
+    "kogas-press": ["goBoard.do", "boardNo=41"],
+    "ulsan-press": ["bbs", "ulsan"],
+    "ulsan-notice": ["notice", "ulsan"],
+    "kotra-news": ["dream.kotra.or.kr", "kotranews", "MENU_ID="],
+    "korea-briefing": ["korea.kr", "briefing"],
+    "knrec-biz": ["view.do?no="],
+}
+EXCLUDE_URL_PATTERNS = ["/contents/", "/menu.es", "/index.do?menuId=", "/cms/com/index.do?MENU_ID="]
 NOISE_TERMS = [
     "로그인", "회원가입", "전체", "더보기", "이전", "다음", "목록", "안내", "소개", "구독", "개인정보",
     "이용약관", "고객센터", "국가상징", "정보공개제도안내", "상품권 구매현황", "nars info", "home", "사이트맵"
@@ -112,6 +132,8 @@ def generic_extract(base_url: str, soup: BeautifulSoup, limit_per_source: int):
             continue
         if any(bad in href.lower() for bad in ["login", "join", "privacy", "terms"]):
             continue
+        if not is_allowed_for_source("", href):
+            continue
         key = (text, href)
         if key in seen:
             continue
@@ -130,7 +152,7 @@ def generic_extract(base_url: str, soup: BeautifulSoup, limit_per_source: int):
     return items
 
 
-def table_row_extract(base_url: str, soup: BeautifulSoup, limit_per_source: int):
+def table_row_extract(base_url: str, soup: BeautifulSoup, limit_per_source: int, source_id: str):
     items = []
     seen = set()
     for row in soup.select("tr"):
@@ -143,6 +165,8 @@ def table_row_extract(base_url: str, soup: BeautifulSoup, limit_per_source: int)
             continue
         href = clean_href(base_url, link.get("href"))
         if not href:
+            continue
+        if not is_allowed_for_source(source_id, href):
             continue
         key = (title, href)
         if key in seen:
@@ -162,7 +186,7 @@ def table_row_extract(base_url: str, soup: BeautifulSoup, limit_per_source: int)
     return items
 
 
-def list_item_extract(base_url: str, soup: BeautifulSoup, limit_per_source: int):
+def list_item_extract(base_url: str, soup: BeautifulSoup, limit_per_source: int, source_id: str):
     items = []
     seen = set()
     selectors = ["li", ".list-item", ".board-list li", ".bbs_list li", ".card", ".news_list li"]
@@ -177,6 +201,8 @@ def list_item_extract(base_url: str, soup: BeautifulSoup, limit_per_source: int)
                 continue
             href = clean_href(base_url, link.get("href"))
             if not href:
+                continue
+            if not is_allowed_for_source(source_id, href):
                 continue
             key = (title, href)
             if key in seen:
@@ -196,6 +222,18 @@ def list_item_extract(base_url: str, soup: BeautifulSoup, limit_per_source: int)
     return items
 
 
+def is_allowed_for_source(source_id: str, href: str):
+    href_l = href.lower()
+    patterns = ALLOW_PATTERNS.get(source_id)
+    if patterns:
+        if not any(p.lower() in href_l for p in patterns):
+            return False
+    if any(p.lower() in href_l for p in EXCLUDE_URL_PATTERNS):
+        if "act=view" not in href_l and "view.do?no=" not in href_l:
+            return False
+    return True
+
+
 def extract_candidate_items(source, html: str, limit_per_source: int):
     base_url = source["url"]
     soup = BeautifulSoup(html, "html.parser")
@@ -213,18 +251,18 @@ def extract_candidate_items(source, html: str, limit_per_source: int):
     }
 
     if source_id in table_first:
-        items = table_row_extract(base_url, soup, limit_per_source)
+        items = table_row_extract(base_url, soup, limit_per_source, source_id)
         if items:
             return items
     if source_id in list_first:
-        items = list_item_extract(base_url, soup, limit_per_source)
+        items = list_item_extract(base_url, soup, limit_per_source, source_id)
         if items:
             return items
 
-    items = table_row_extract(base_url, soup, limit_per_source)
+    items = table_row_extract(base_url, soup, limit_per_source, source_id)
     if items:
         return items
-    items = list_item_extract(base_url, soup, limit_per_source)
+    items = list_item_extract(base_url, soup, limit_per_source, source_id)
     if items:
         return items
     return generic_extract(base_url, soup, limit_per_source)
